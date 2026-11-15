@@ -187,7 +187,14 @@ public:
 inline ScratchMaintenance& scratchMaintenance() {
     struct Holder {
         std::atomic<ScratchMaintenance*> current{nullptr};
-        ~Holder(){auto* p=current.load();if(p&&p->pid==platform::process_id())delete p;}
+        // Never destroyed, like sharedPool()'s registry in
+        // thread_pool.hpp. This holder's static destructor runs during
+        // process exit; on Windows that is inside DLL_PROCESS_DETACH
+        // under the loader lock, where the OS has already terminated
+        // the maintenance worker, so ~ScratchMaintenance's join deadlocks
+        // and the process never exits (issue #2562). The instance is
+        // simply left to the OS; the pid check below still gives forked
+        // children a fresh instance.
     };
     static Holder holder;
     auto* current=holder.current.load(std::memory_order_acquire);
